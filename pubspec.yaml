@@ -1,0 +1,110 @@
+name: vidnotes
+description: 视频学习笔记应用 - 从视频中提取知识、做笔记、生成思维导图
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 状态管理
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # 路由
+  go_router: ^13.0.0
+
+  # 本地数据库
+  isar: ^3.1.0+1
+  isar_flutter_libs: ^3.1.0+1
+
+  # 文件操作
+  file_picker: ^6.1.1
+  path_provider: ^2.1.1
+  path: ^1.8.3
+
+  # 视频播放
+  video_player: ^2.8.1
+  chewie: ^1.7.4
+
+  # 截图功能
+  screenshot: ^2.1.0
+
+  # 图片处理
+  image_picker: ^1.0.5
+
+  # 分享功能
+  share_plus: ^7.2.1
+
+  # 国际化
+  intl: ^0.20.2
+
+  # UI组件
+  cupertino_icons: ^1.0.6
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.0
+  lottie: ^2.7.0
+
+  # 工具类
+  uuid: ^4.2.2
+  url_launcher: ^6.2.2
+  logger: ^2.0.2+1
+  dio: ^5.4.0
+
+  # FFmpeg (视频处理) - 暂时注释，真机调试时可能出现下载问题
+  # ffmpeg_kit_flutter: ^6.0.3
+
+  # 音频处理
+  audioplayers: ^5.2.1
+
+  # 富文本编辑
+  flutter_quill: ^11.5.0
+
+  # 思维导图相关
+  flutter_colorpicker: ^1.0.3
+  
+  # PDF导出
+  pdf: ^3.10.7
+  printing: ^5.11.1
+
+  # 本地通知
+  flutter_local_notifications: ^16.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  
+  # 代码生成
+  riverpod_generator: ^2.3.9
+  build_runner: ^2.4.7
+  isar_generator: ^3.1.0+1
+  
+  # 测试
+  mocktail: ^1.0.2
+
+flutter:
+  uses-material-design: true
+
+  # 字体（暂时注释，使用系统默认字体）
+  # fonts:
+  #   - family: NotoSansSC
+  #     fonts:
+  #       - asset: assets/fonts/NotoSansSC-Regular.ttf
+  #       - asset: assets/fonts/NotoSansSC-Bold.ttf
+  #         weight: 700
+  #   - family: Inter
+  #     fonts:
+  #       - asset: assets/fonts/Inter-Regular.ttf
+  #       - asset: assets/fonts/Inter-Bold.ttf
+  #         weight: 700
+
+  # 资源文件（暂时注释）
+  # assets:
+  #   - assets/images/
+  #   - assets/icons/
+  #   - assets/animations/
+
