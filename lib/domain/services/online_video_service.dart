@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../../core/utils/logger.dart';
 
 /// 视频平台类型
@@ -92,7 +94,22 @@ class OnlineVideoService {
   Future<OnlineVideoInfo?> parseVideo(String input) async {
     try {
       // 先提取URL
-      final url = extractUrl(input) ?? input;
+      var url = extractUrl(input) ?? input;
+      
+      // 处理重定向 (特别是 b23.tv)
+      if (url.contains('b23.tv') || url.contains('youtu.be')) {
+        try {
+          final dio = Dio();
+          final response = await dio.head(url);
+          if (response.realUri.toString() != url) {
+            url = response.realUri.toString();
+            AppLogger.info('解析重定向后的URL: $url');
+          }
+        } catch (e) {
+          AppLogger.warning('处理URL重定向失败: $e');
+        }
+      }
+
       final platform = detectPlatform(url);
 
       switch (platform) {
@@ -112,27 +129,85 @@ class OnlineVideoService {
     }
   }
 
+  /// 获取页面标题
+  Future<String?> _fetchPageTitle(String url) async {
+    try {
+      final dio = Dio();
+      final response = await dio.get(url);
+      final html = response.data.toString();
+      
+      // 匹配 <title> 标签
+      final titleMatch = RegExp(r'<title>(.*?)<\/title>', dotAll: true).firstMatch(html);
+      if (titleMatch != null) {
+        var title = titleMatch.group(1)?.trim() ?? '';
+        // 清理常见的后缀
+        title = title.replaceAll('_哔哩哔哩_bilibili', '');
+        title = title.replaceAll(' - YouTube', '');
+        return title;
+      }
+    } catch (e) {
+      AppLogger.warning('获取页面标题失败: $e');
+    }
+    return null;
+  }
+
   /// 解析哔哩哔哩视频
   Future<OnlineVideoInfo?> _parseBilibili(String url) async {
     try {
       AppLogger.info('解析B站视频: $url');
 
-      // TODO: 实现B站视频解析
-      // 方案1: 使用B站API (需要处理反爬虫)
-      // 方案2: 使用第三方解析服务
-      // 方案3: 使用 you-get、yt-dlp 等工具
+      // 提取 BVID
+      final bvidMatch = RegExp(r'BV[a-zA-Z0-9]+').firstMatch(url);
+      if (bvidMatch == null) return null;
+      final bvid = bvidMatch.group(0)!;
 
-      // 临时方案：返回基础信息，提示用户使用第三方工具
+      final dio = Dio();
+      
+      // 1. 获取视频详情 (包含标题、描述、封面、cid)
+      final viewResponse = await dio.get('https://api.bilibili.com/x/web-interface/view?bvid=$bvid');
+      final viewData = viewResponse.data['data'];
+      final title = viewData['title'];
+      final description = viewData['desc'];
+      final thumbnail = viewData['pic'];
+      final cid = viewData['cid'];
+      final duration = viewData['duration'];
+
+      // 2. 获取播放地址 (优先获取高质量)
+      // 注意：B站API返回的链接通常需要 Referer: https://www.bilibili.com 才能播放
+      final playResponse = await dio.get(
+        'https://api.bilibili.com/x/player/playurl',
+        queryParameters: {
+          'bvid': bvid,
+          'cid': cid,
+          'qn': 64, // 720P
+          'type': 'mp4',
+          'platform': 'html5',
+          'high_quality': 1,
+        },
+      );
+      
+      final playData = playResponse.data['data'];
+      final videoUrl = playData['durl'][0]['url'];
+
       return OnlineVideoInfo(
-        title: '哔哩哔哩视频',
-        description: '请使用第三方工具下载后导入',
-        videoUrl: url,
+        title: title,
+        description: description,
+        thumbnailUrl: thumbnail,
+        videoUrl: videoUrl,
         platform: VideoPlatform.bilibili,
+        duration: duration,
         originalUrl: url,
       );
     } catch (e) {
       AppLogger.error('解析B站视频失败', e);
-      return null;
+      // 降级：返回网页标题
+      final title = await _fetchPageTitle(url) ?? '哔哩哔哩视频';
+      return OnlineVideoInfo(
+        title: title,
+        videoUrl: url,
+        platform: VideoPlatform.bilibili,
+        originalUrl: url,
+      );
     }
   }
 
@@ -141,19 +216,34 @@ class OnlineVideoService {
     try {
       AppLogger.info('解析YouTube视频: $url');
 
-      // TODO: 实现YouTube视频解析
-      // 可以使用 youtube_explode_dart 包
+      final yt = YoutubeExplode();
+      final video = await yt.videos.get(url);
+      
+      // 获取视频流
+      final manifest = await yt.videos.streamsClient.getManifest(video.id);
+      final streamInfo = manifest.muxed.withHighestBitrate();
+      final videoUrl = streamInfo.url.toString();
+
+      yt.close();
 
       return OnlineVideoInfo(
-        title: 'YouTube视频',
-        description: '请使用第三方工具下载后导入',
-        videoUrl: url,
+        title: video.title,
+        description: video.description,
+        thumbnailUrl: video.thumbnails.highResUrl,
+        videoUrl: videoUrl,
         platform: VideoPlatform.youtube,
+        duration: video.duration?.inSeconds,
         originalUrl: url,
       );
     } catch (e) {
       AppLogger.error('解析YouTube视频失败', e);
-      return null;
+      final title = await _fetchPageTitle(url) ?? 'YouTube视频';
+      return OnlineVideoInfo(
+        title: title,
+        videoUrl: url,
+        platform: VideoPlatform.youtube,
+        originalUrl: url,
+      );
     }
   }
 

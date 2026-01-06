@@ -157,15 +157,40 @@ class VideoListPage extends ConsumerWidget {
                         ),
                         
                         // 操作按钮
-                        IconButton(
-                          icon: Icon(
-                            video.isFavorite ? Icons.star : Icons.star_outline,
-                            color: video.isFavorite ? Colors.amber : Colors.grey,
-                          ),
-                          onPressed: () async {
-                            final repository = ref.read(videoRepositoryProvider);
-                            await repository.toggleFavorite(video.id);
-                          },
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                video.isFavorite ? Icons.star : Icons.star_outline,
+                                color: video.isFavorite ? Colors.amber : Colors.grey,
+                              ),
+                              onPressed: () async {
+                                final repository = ref.read(videoRepositoryProvider);
+                                await repository.toggleFavorite(video.id);
+                              },
+                            ),
+                            PopupMenuButton(
+                              icon: const Icon(Icons.more_vert),
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                      SizedBox(width: 8),
+                                      Text('删除', style: TextStyle(color: Colors.red)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              onSelected: (value) {
+                                if (value == 'delete') {
+                                  _confirmDeleteVideo(context, ref, video);
+                                }
+                              },
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -193,6 +218,40 @@ class VideoListPage extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('导入视频'),
         elevation: 4,
+      ),
+    );
+  }
+
+  /// 确认删除视频
+  void _confirmDeleteVideo(BuildContext context, WidgetRef ref, video) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除视频'),
+        content: Text('确定要删除视频 "${video.title}" 吗？此操作无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final repository = ref.read(videoRepositoryProvider);
+              await repository.deleteVideo(video.id);
+              if (context.mounted) {
+                Navigator.pop(context); // 关闭对话框
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('视频已删除'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
       ),
     );
   }

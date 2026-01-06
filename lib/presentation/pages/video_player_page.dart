@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/video_providers.dart';
 import '../providers/note_providers.dart';
 import '../widgets/smart_video_player.dart';
@@ -54,28 +55,48 @@ class _VideoPlayerPageState extends ConsumerState<VideoPlayerPage> {
               await repository.toggleFavorite(widget.videoId);
             },
           ),
+          if (videoAsync.valueOrNull?.sourceUrl != null)
+            IconButton(
+              icon: const Icon(Icons.open_in_browser),
+              tooltip: '在浏览器中打开源码',
+              onPressed: () async {
+                final url = videoAsync.valueOrNull!.sourceUrl!;
+                final uri = Uri.parse(url);
+                try {
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('无法打开链接: $e')),
+                    );
+                  }
+                }
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.more_vert),
             onPressed: () => _showMoreOptions(context),
           ),
         ],
       ),
-      body: videoAsync.when(
-        data: (video) {
-          if (video == null) {
-            return const Center(
-              child: Text('视频不存在'),
-            );
-          }
+      body: SafeArea(
+        child: videoAsync.when(
+          data: (video) {
+            if (video == null) {
+              return const Center(
+                child: Text('视频不存在'),
+              );
+            }
 
-          return Column(
-            children: [
-              // 视频播放器（使用 Flexible 避免溢出）
-              Flexible(
-                flex: 0,
-                child: SmartVideoPlayer(
+            return Column(
+              children: [
+                // 视频播放器
+                SmartVideoPlayer(
                   videoPath: video.path,
                   videoId: video.id,
+                  sourceUrl: video.sourceUrl,
                   notes: notesAsync.valueOrNull ?? [],
                   initialPosition: Duration(seconds: video.playbackPosition),
                   onPositionChanged: (position) {
@@ -90,31 +111,34 @@ class _VideoPlayerPageState extends ConsumerState<VideoPlayerPage> {
                   },
                   onAddNote: () => _showAddNoteDialog(context),
                 ),
-              ),
 
-              // 笔记列表
-              Expanded(
-                child: _buildNotesSection(notesAsync),
+                // 笔记列表
+                Expanded(
+                  child: _buildNotesSection(notesAsync),
+                ),
+              ],
+            );
+          },
+          loading: () => const Center(
+            child: CircularProgressIndicator(),
+          ),
+          error: (error, stack) => Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('加载失败: $error', textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('返回'),
+                  ),
+                ],
               ),
-            ],
-          );
-        },
-        loading: () => const Center(
-          child: CircularProgressIndicator(),
-        ),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              Text('加载失败: $error'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('返回'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -287,6 +311,12 @@ class _VideoPlayerPageState extends ConsumerState<VideoPlayerPage> {
               if (context.mounted) {
                 Navigator.pop(context); // 关闭对话框
                 Navigator.pop(context); // 返回上一页
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('视频已删除'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
               }
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),

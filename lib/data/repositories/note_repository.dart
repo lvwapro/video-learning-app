@@ -156,6 +156,18 @@ class NoteRepository {
     }
   }
 
+  /// 删除指定视频的所有笔记
+  Future<void> deleteNotesByVideoId(int videoId) async {
+    try {
+      await _db.isar.writeTxn(() async {
+        await _db.isar.videoNotes.filter().videoIdEqualTo(videoId).deleteAll();
+      });
+    } catch (e, stackTrace) {
+      AppLogger.error('删除视频笔记失败: $videoId', e, stackTrace);
+      rethrow;
+    }
+  }
+
   /// 更新复习信息
   Future<void> markAsReviewed(int noteId) async {
     try {

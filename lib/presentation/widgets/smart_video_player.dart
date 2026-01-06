@@ -2,6 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:chewie/chewie.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/utils/logger.dart';
+import '../../domain/services/online_video_service.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_colors.dart';
 import '../../data/models/video_note.dart';
@@ -10,6 +13,7 @@ import '../../data/models/video_note.dart';
 class SmartVideoPlayer extends StatefulWidget {
   final String videoPath;
   final int videoId;
+  final String? sourceUrl; // 原始链接，用于流链接失效时刷新
   final List<VideoNote> notes;
   final Duration? initialPosition;
   final ValueChanged<Duration>? onPositionChanged;
@@ -20,6 +24,7 @@ class SmartVideoPlayer extends StatefulWidget {
     super.key,
     required this.videoPath,
     required this.videoId,
+    this.sourceUrl,
     this.notes = const [],
     this.initialPosition,
     this.onPositionChanged,
@@ -47,88 +52,131 @@ class _SmartVideoPlayerState extends State<SmartVideoPlayer> {
 
   Future<void> _initializePlayer() async {
     try {
+      String currentPath = widget.videoPath;
+      
       // 判断是在线视频还是本地视频
-      final isOnline = widget.videoPath.startsWith('http://') || 
-                      widget.videoPath.startsWith('https://');
+      final isOnline = currentPath.startsWith('http');
       
       if (isOnline) {
-        // 在线视频
+        // 在线视频处理
+        Map<String, String> headers = {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        };
+
+        // 如果是B站链接，需要添加 Referer
+        if (currentPath.contains('bilibili') || 
+            currentPath.contains('bilivideo.com') ||
+            currentPath.contains('akamaized.net')) {
+          headers['Referer'] = 'https://www.bilibili.com';
+        }
+
         _videoPlayerController = VideoPlayerController.networkUrl(
-          Uri.parse(widget.videoPath),
+          Uri.parse(currentPath),
+          httpHeaders: headers,
         );
       } else {
         // 本地视频
         _videoPlayerController = VideoPlayerController.file(
-          File(widget.videoPath),
+          File(currentPath),
         );
       }
 
       await _videoPlayerController.initialize();
-
-      _chewieController = ChewieController(
-        videoPlayerController: _videoPlayerController,
-        autoPlay: false,
-        looping: false,
-        allowFullScreen: true,
-        allowMuting: true,
-        showControls: true,
-        showControlsOnInitialize: true,
-        materialProgressColors: ChewieProgressColors(
-          playedColor: AppColors.primary,
-          handleColor: AppColors.primary,
-          backgroundColor: Colors.grey[300]!,
-          bufferedColor: Colors.grey[200]!,
-        ),
-        placeholder: Container(
-          color: Colors.black,
-          child: const Center(
-            child: CircularProgressIndicator(),
-          ),
-        ),
-        errorBuilder: (context, errorMessage) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  size: 48,
-                  color: Colors.red,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '播放失败',
-                  style: TextStyle(color: Colors.white),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  errorMessage,
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        },
-      );
-
-      // 设置初始播放位置
-      if (widget.initialPosition != null) {
-        await _videoPlayerController.seekTo(widget.initialPosition!);
-      }
-
-      // 监听播放位置变化
-      _videoPlayerController.addListener(_onVideoPositionChanged);
+      _setupChewie();
 
       setState(() {
         _isInitialized = true;
       });
     } catch (e) {
+      // 如果在线视频加载失败且有原始链接，尝试重新解析
+      if (widget.sourceUrl != null && !widget.videoPath.contains(widget.sourceUrl!)) {
+        try {
+          final service = OnlineVideoService();
+          final videoInfo = await service.parseVideo(widget.sourceUrl!);
+          if (videoInfo != null && videoInfo.videoUrl != widget.videoPath) {
+            // 重新尝试初始化
+            _videoPlayerController = VideoPlayerController.networkUrl(
+              Uri.parse(videoInfo.videoUrl),
+              httpHeaders: {
+                'Referer': 'https://www.bilibili.com',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+              },
+            );
+            await _videoPlayerController.initialize();
+            _setupChewie();
+            setState(() {
+              _isInitialized = true;
+              _hasError = false;
+            });
+            return;
+          }
+        } catch (retryError) {
+          AppLogger.error('重新解析流链接失败', retryError);
+        }
+      }
+
       setState(() {
         _hasError = true;
         _errorMessage = e.toString();
       });
     }
+  }
+
+  void _setupChewie() {
+    _chewieController = ChewieController(
+      videoPlayerController: _videoPlayerController,
+      autoPlay: false,
+      looping: false,
+      allowFullScreen: true,
+      allowMuting: true,
+      showControls: true,
+      showControlsOnInitialize: true,
+      materialProgressColors: ChewieProgressColors(
+        playedColor: AppColors.primary,
+        handleColor: AppColors.primary,
+        backgroundColor: Colors.grey[300]!,
+        bufferedColor: Colors.grey[200]!,
+      ),
+      placeholder: Container(
+        color: Colors.black,
+        child: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      ),
+      errorBuilder: (context, errorMessage) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 48,
+                color: Colors.red,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '播放失败',
+                style: TextStyle(color: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                errorMessage,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    
+    // 设置初始播放位置
+    if (widget.initialPosition != null) {
+      _videoPlayerController.seekTo(widget.initialPosition!);
+    }
+
+    // 监听播放位置变化
+    _videoPlayerController.addListener(_onVideoPositionChanged);
   }
 
   void _onVideoPositionChanged() {
@@ -157,28 +205,35 @@ class _SmartVideoPlayerState extends State<SmartVideoPlayer> {
     }
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 视频播放器
-        AspectRatio(
-          aspectRatio: _videoPlayerController.value.aspectRatio,
-          child: Stack(
-            children: [
-              Chewie(controller: _chewieController!),
-              
-              // 添加笔记按钮（悬浮）
-              if (widget.onAddNote != null)
-                Positioned(
-                  right: 16,
-                  bottom: 60,
-                  child: FloatingActionButton(
-                    heroTag: 'video_player_add_note_fab',
-                    mini: true,
-                    onPressed: widget.onAddNote,
-                    backgroundColor: AppColors.accent,
-                    child: const Icon(Icons.add_comment, size: 20),
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4, // 限制最高占屏幕40%
+          ),
+          child: AspectRatio(
+            aspectRatio: _videoPlayerController.value.aspectRatio,
+            child: Stack(
+              children: [
+                Chewie(controller: _chewieController!),
+                
+                // 添加笔记按钮（悬浮）
+                if (widget.onAddNote != null)
+                  Positioned(
+                    right: 16,
+                    bottom: 60,
+                    child: FloatingActionButton(
+                      heroTag: 'video_player_add_note_fab',
+                      mini: true,
+                      onPressed: widget.onAddNote,
+                      backgroundColor: AppColors.accent,
+                      child: const Icon(Icons.add_comment, size: 20),
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
 
@@ -213,6 +268,8 @@ class _SmartVideoPlayerState extends State<SmartVideoPlayer> {
   }
 
   Widget _buildErrorView() {
+    final isOnline = widget.videoPath.startsWith('http');
+
     return Container(
       color: Colors.black,
       height: 250,
@@ -229,9 +286,9 @@ class _SmartVideoPlayerState extends State<SmartVideoPlayer> {
                   color: Colors.red,
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  '视频加载失败',
-                  style: TextStyle(
+                Text(
+                  isOnline ? '在线视频播放受阻' : '视频加载失败',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -239,7 +296,9 @@ class _SmartVideoPlayerState extends State<SmartVideoPlayer> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _errorMessage ?? '未知错误',
+                  isOnline 
+                    ? '部分平台（如B站、YouTube）的直接链接可能失效或需要特定播放器。'
+                    : (_errorMessage ?? '未知错误'),
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 14,
@@ -249,15 +308,37 @@ class _SmartVideoPlayerState extends State<SmartVideoPlayer> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      _hasError = false;
-                      _isInitialized = false;
-                    });
-                    _initializePlayer();
-                  },
-                  child: const Text('重试'),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _hasError = false;
+                          _isInitialized = false;
+                        });
+                        _initializePlayer();
+                      },
+                      child: const Text('重试'),
+                    ),
+                    if (isOnline) ...[
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white),
+                        ),
+                        onPressed: () async {
+                          final uri = Uri.parse(widget.videoPath);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        icon: const Icon(Icons.open_in_new, size: 18),
+                        label: const Text('外部观看'),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),

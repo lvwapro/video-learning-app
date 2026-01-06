@@ -72,6 +72,7 @@ dependencies:
 
   # 本地通知
   flutter_local_notifications: ^16.3.0
+  youtube_explode_dart: ^3.0.5
 
 dev_dependencies:
   flutter_test:

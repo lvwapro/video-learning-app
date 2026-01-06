@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:isar/isar.dart';
 import '../models/video.dart';
+import '../models/video_note.dart';
 import '../datasources/database_service.dart';
 import '../../core/utils/logger.dart';
 
@@ -92,12 +94,48 @@ class VideoRepository {
     }
   }
 
-  /// 删除视频
+  /// 删除视频（包括关联的文件和笔记）
   Future<void> deleteVideo(int id) async {
     try {
+      final video = await getVideoById(id);
+      if (video == null) return;
+
+      // 1. 删除物理文件
+      try {
+        final file = File(video.path);
+        if (await file.exists()) {
+          await file.delete();
+          AppLogger.info('已删除视频文件: ${video.path}');
+        }
+        
+        if (video.thumbnailPath != null) {
+          final thumbFile = File(video.thumbnailPath!);
+          if (await thumbFile.exists()) {
+            await thumbFile.delete();
+          }
+        }
+
+        if (video.subtitlePath != null) {
+          final subFile = File(video.subtitlePath!);
+          if (await subFile.exists()) {
+            await subFile.delete();
+          }
+        }
+      } catch (e) {
+        AppLogger.warning('删除物理文件失败: $e');
+      }
+
+      // 2. 删除数据库记录
       await _db.isar.writeTxn(() async {
+        // 删除视频关联的所有笔记
+        await _db.isar.videoNotes.filter().videoIdEqualTo(id).deleteAll();
+        // 删除视频关联的导图
+        // TODO: 如果有导图模型也在这里删除
+        // 删除视频本身
         await _db.isar.videos.delete(id);
       });
+      
+      AppLogger.info('视频及其关联数据已删除: $id');
     } catch (e, stackTrace) {
       AppLogger.error('删除视频失败: $id', e, stackTrace);
       rethrow;
